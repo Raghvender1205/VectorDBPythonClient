@@ -1,8 +1,13 @@
 import requests
+import logging
+import time
 from typing import Optional, List, Dict
 
 from vectordb_client.exceptions import VectorDBClientConnectionError, VectorDBClientRequestError
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class VectorDBClient:
     def __init__(
@@ -42,6 +47,7 @@ class VectorDBClient:
 
         for attempt in range(1, self.max_retries + 1):
             try:
+                logger.debug(f"Attempt {attempt}: Adding document with id {id}")
                 response = self.session.post(url, json=payload, timeout=self.timeout)
                 if response.status_code == 200:
                     return True
@@ -50,6 +56,36 @@ class VectorDBClient:
             except requests.exceptions.RequestException as e:
                 if attempt == self.max_retries:
                     raise VectorDBClientConnectionError(f"Failed to add document after {self.max_retries}") from e
+
+        return False
+
+    # TODO: Add async function of this.
+    def add_documents(self, documents: List[Dict]) -> bool:
+        """
+        Adds multiple documents to the VectorDB
+        Each document is a directory with keys: id, embedding, metadata.
+        """
+        url = f"{self.server_url}/add_documents"
+        payload = {"documents": documents}
+
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.debug(f"Attempt {attempt}: Adding {len(documents)} documents")
+                response = self.session.post(url, json=payload, timeout=self.timeout)
+                if response.status_code == 200:
+                    return True
+                else:
+                    raise VectorDBClientRequestError(response.status_code, response.text)
+            except requests.exceptions.RequestException as e:
+                if attempt == self.max_retries:
+                    logger.error(f"Failed to add documents after {self.max_retries} attempts.")
+                    raise VectorDBClientConnectionError(
+                        f"Failed to add documents after {self.max_retries} attempts."
+                    ) from e
+                else:
+                    sleep_time = self.backoff_factor * (2 ** (attempt - 1))
+                    logger.warning(f"Attempt {attempt} failed for adding documents. Retrying in {sleep_time} seconds...")
+                    time.sleep(sleep_time)
 
         return False
 

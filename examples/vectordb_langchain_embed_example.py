@@ -5,7 +5,7 @@ import logging
 from langchain_community.embeddings.huggingface import HuggingFaceBgeEmbeddings
 from langchain_community.document_loaders.pdf import PyPDFLoader
 
-from vectordb_client import VectorDBClient
+from vectordb_client import VectorDBClient, VectorDBClientConnectionError, VectorDBClientRequestError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ def main():
     embedding_model = get_embeddings()
 
     # Embed documents
+    documents = []
     for idx , doc in enumerate(docs, start=1):
         text = doc.page_content.strip()
         if not text:
@@ -73,15 +74,22 @@ def main():
         # Metadata can include more information as needed
         metadata = f"{metadata_category} - Page {idx}"
 
-        # Add document to VectorDB
-        try:
-            success = client.add_document(doc_id, embedding, metadata)
-            if success:
-                logger.info(f"Added document ID {doc_id} to VectorDB.")
-            else:
-                logger.error(f"Failed to add document ID {doc_id} to VectorDB.")
-        except Exception as e:
-            logger.error(f"Exception when adding document ID {doc_id}: {e}") 
+        documents.append({
+            "id": doc_id,
+            "embedding": embedding,
+            "metadata": metadata
+        })
+
+    # Add documents to VectorDB in batch
+    try:
+        success = client.add_documents(documents)
+        if success:
+            logger.info(f"Added {len(documents)} documents to VectorDB.")
+        else:
+            logger.error(f"Failed to add documents to VectorDB.")
+    except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
+        logger.error(f"Exception when adding documents: {e}") 
+
     logger.info("All documents processed.")
 
     # Search 
