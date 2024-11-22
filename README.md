@@ -11,3 +11,7 @@ Python SDK for [VectorDB](https://github.com/Raghvender1205/VectorDB)
 3. Secure API
 4. Handle edge cases
 5. Refine the examples 
+
+Implement `CustomVectorStore` for compatibility with `langchain`, `langgraph` etc.
+
+https://github.com/langchain-ai/langchain/discussions/17238
