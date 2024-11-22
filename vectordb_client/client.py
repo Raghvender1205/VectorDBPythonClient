@@ -18,7 +18,7 @@ class VectorDBClient:
         :param timeout: Timeout for HTTP requests in seconds
         :param max_retries: Max number of retry attempts for failed requests
         """
-        self.server_url = server_url.rsplit("/")
+        self.server_url = server_url.rstrip("/")
         self.timeout = timeout
         self.max_retries = max_retries
         self.session = requests.Session()

@@ -4,3 +4,10 @@
 </div>
 
 Python SDK for [VectorDB](https://github.com/Raghvender1205/VectorDB)
+
+## TODO
+1. Use Type Annotations and Data Validations
+2. Logging
+3. Secure API
+4. Handle edge cases
+5. Refine the examples 
