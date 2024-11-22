@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vectordb_client"
+version = "0.1.0"
+description = "Python SDK client for VectorDB"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Your Name", email = "raghvender1205@gmail.com" }
+]
+homepage = "https://github.com/Raghvender1205/VectorDBPythonClient"
+
+[project.urls]
+"Bug Tracker" = "https://github.com/Raghvender1205/VectorDBPythonClient/issues"
+
+[project.dependencies]
+requests = ">=2.25.1"
+httpx = ">=0.23.0"
+pydantic = ">=1.8.2"
+
+[project.optional-dependencies]
+tests = [
+    "pytest>=6.2.0",
+    "pytest-asyncio>=0.15.1",
+]
