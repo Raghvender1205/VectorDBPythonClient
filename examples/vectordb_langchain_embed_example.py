@@ -73,11 +73,13 @@ def main():
         doc_id = idx
         # Metadata can include more information as needed
         metadata = f"{metadata_category} - Page {idx}"
+        content = text
 
         documents.append({
             "id": doc_id,
             "embedding": embedding,
-            "metadata": metadata
+            "metadata": metadata,
+            "content": content
         })
 
     # Add documents to VectorDB in batch
@@ -117,6 +119,7 @@ def main():
                 print("\nRelevant Results:")
                 for doc in retrieved_docs:
                     print(f"ID: {doc['id']}, Distance: {doc['distance']:.4f}, Metadata: {doc['metadata']}")
+                    print(f"Content: {doc['content']}\n")
                 print("\n")
             else:
                 print("No documents retrieved.\n")

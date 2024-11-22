@@ -24,7 +24,7 @@ class AsyncVectorDBClient:
         self.client = httpx.AsyncClient(timeout=self.timeout, headers={"Content-Type": "application/json"})
 
 
-    async def aadd_document(self, id: int, embedding: List[float], metadata: str) -> bool:
+    async def aadd_document(self, id: int, embedding: List[float], metadata: str, content: str) -> bool:
         """
         Asynchronously Adds a document to the VectorDB.
 
@@ -37,7 +37,8 @@ class AsyncVectorDBClient:
         payload = {
             "id": id,
             "embedding": embedding,
-            "metadata": metadata
+            "metadata": metadata,
+            "content": content
         }
 
         for attempt in range(1, self.max_retries + 1):

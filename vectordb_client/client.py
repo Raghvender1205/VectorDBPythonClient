@@ -29,7 +29,7 @@ class VectorDBClient:
         self.session = requests.Session()
         self.session.headers.update({'Content-Type': 'application/json'})
 
-    def add_document(self, id: int, embedding: List[float], metadata: str) -> bool:
+    def add_document(self, id: int, embedding: List[float], metadata: str, content) -> bool:
         """
         Adds a document to the VectorDB.
 
@@ -42,7 +42,8 @@ class VectorDBClient:
         payload = {
             "id": id,
             "embedding": embedding,
-            "metadata": metadata
+            "metadata": metadata,
+            "content": content
         }
 
         for attempt in range(1, self.max_retries + 1):
