@@ -9,17 +9,19 @@ Currently, it can embed documents using `Langchain document loader and huggingfa
 
 ## TODO
 1. Use Type Annotations and Data Validations
-2. Search threshold for more relevant results
-3. Logging
-4. API Keys Middleware
-5. Handle edge cases
-6. Refine the examples
-7. Implement pagination for search results
-8. Delete document endpoint 
-9. Allow to add similar documents in different collections
-10. Metadata filtering inside a collection docs
-11. Test Async client and examples. See [here](https://github.com/Raghvender1205/VectorDBPythonClient/tree/master/examples/async_client_test.py)
+2. Test and fix the langchain `CustomVectorDBVectorStore`
+3. Implement `as_retriever()` feature.
+4. Search threshold for more relevant results
+5. Logging
+6. API Keys Middleware
+7. Handle edge cases
+8. Refine the examples
+9. Implement pagination for search results
+10. Delete document endpoint 
+11. Allow to add similar documents in different collections
+12. Metadata filtering inside a collection docs
+13. Test Async client and examples. See [here](https://github.com/Raghvender1205/VectorDBPythonClient/tree/master/examples/async_client_test.py)
 
-Implement `CustomVectorStore` for compatibility with `langchain`, `langgraph` etc.
+Implement `CustomVectorStore` for compatibility with `langchain`, `langgraph` etc. (Currently, not working)
 
 https://github.com/langchain-ai/langchain/discussions/17238
