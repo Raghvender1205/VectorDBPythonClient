@@ -37,11 +37,24 @@ def main():
     pdf_path = "document.pdf"
     server_url = "http://127.0.0.1:8444"
     metadata_category = "pdf_document"
+    collection_name = "sample_collection"
 
     client = VectorDBClient(server_url=server_url)
     if not os.path.exists(pdf_path):
         logger.error(f'PDF file not found at {pdf_path}')
         return 
+
+    # Create or get collection
+    logger.info(f'Creating or retrieving collection "{collection_name}"')
+    try:
+        collection = client.create_collection(collection_name)
+        if collection:
+            logger.info(f"Collection created: ID={collection.id}, Name='{collection.name}'")
+        else:
+            logger.info(f"Collection '{collection_name}' already exists.")
+    except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
+        logger.error(f"Exception when creating collection: {e}")
+        return
 
     # Chunk pdf
     logger.info(f'Loading PDF from {pdf_path}')
@@ -83,14 +96,18 @@ def main():
         })
 
     # Add documents to VectorDB in batch
-    try:
-        success = client.add_documents(documents)
-        if success:
-            logger.info(f"Added {len(documents)} documents to VectorDB.")
-        else:
-            logger.error(f"Failed to add documents to VectorDB.")
-    except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
-        logger.error(f"Exception when adding documents: {e}") 
+    if not documents:
+        logger.warning("No documents to add after processing PDF.")
+    else:
+        # Add documents to VectorDB in batch
+        try:
+            success = client.add_documents(documents, collection_name=collection_name)
+            if success:
+                logger.info(f"Added {len(documents)} documents to collection '{collection_name}'.")
+            else:
+                logger.error(f"Failed to add documents to collection '{collection_name}'.")
+        except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
+            logger.error(f"Exception when adding documents: {e}") 
 
     logger.info("All documents processed.")
 
@@ -112,7 +129,8 @@ def main():
                 query=query_embedding, 
                 n=5, 
                 metric="Cosine", 
-                metadata_filter=metadata_category
+                # metadata_filter=metadata_category # TODO: Implement this feature
+                collection_name=collection_name,
             )
 
             if retrieved_docs:
