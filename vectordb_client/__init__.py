@@ -6,6 +6,7 @@ from .exceptions import (
     VectorDBClientConnectionError,
     VectorDBClientValidationError
 )
+from .vectorstore import VectorDBVectorStore
 
 __all__ = [
     'VectorDBClient',
@@ -14,4 +15,5 @@ __all__ = [
     'VectorDBClientRequestError',
     'VectorDBClientConnectionError',
     'VectorDBClientValidationError',
+    'VectorDBVectorStore'
 ]
