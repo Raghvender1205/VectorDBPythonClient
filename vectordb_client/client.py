@@ -54,10 +54,14 @@ class VectorDBClient:
                 response = self.session.post(url, json=payload, timeout=self.timeout)
                 if response.status_code == 200:
                     collection_data = response.json()
+                    logger.info(f"Collection '{collection_name}' created successfully.")
+                    
                     return Collection.from_dict(collection_data)
                 elif response.status_code == 409:
                     logger.warning(f"Collection '{collection_name}' already exists.")
-                    return None
+                    existing_collection = self.get_collection(collection_name)
+
+                    return existing_collection
                 else:
                     raise VectorDBClientRequestError(response.status_code, response.text)
             except requests.exceptions.RequestException as e:
@@ -65,6 +69,40 @@ class VectorDBClient:
                 if attempt == self.max_retries:
                     raise VectorDBClientConnectionError(
                         f"Failed to create collection '{collection_name}' after {self.max_retries} attempts."
+                    ) from e
+                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
+                logger.info(f"Retrying in {sleep_time} seconds...")
+                time.sleep(sleep_time)
+
+    def get_collection(self, collection_name: str) -> Optional[Collection]:
+        """
+        Retrieves an existing collection by name
+
+        :param collection_name: Name of the collection
+        :return: Collection object if found, None otherwise
+        """
+        url = f"{self.server_url}/collections/{collection_name}"
+
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.debug(f"Attempt {attempt}: Retrieving collection '{collection_name}'")
+                response = self.session.get(url, timeout=self.timeout)
+                if response.status_code == 200:
+                    collection_data = response.json()
+                    logger.info(f"Collection '{collection_name}' retrieved successfully.")
+                    
+                    return Collection.from_dict(collection_data)
+                elif response.status_code == 404:
+                    logger.warning(f"Collection '{collection_name}' not found.")
+                    
+                    return None
+                else:
+                    raise VectorDBClientRequestError(response.status_code, response.text)
+            except requests.exceptions.RequestException as e:
+                logger.error(f"RequestException on attempt {attempt}: {e}")
+                if attempt == self.max_retries:
+                    raise VectorDBClientConnectionError(
+                        f"Failed to retrieve collection '{collection_name}' after {self.max_retries} attempts."
                     ) from e
                 sleep_time = self.backoff_factor * (2 ** (attempt - 1))
                 logger.info(f"Retrying in {sleep_time} seconds...")

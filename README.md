@@ -7,6 +7,12 @@ Python SDK for [VectorDB](https://github.com/Raghvender1205/VectorDB)
 
 Currently, it can embed documents using `Langchain document loader and huggingface embeddings` then search through. See [here](https://github.com/Raghvender1205/VectorDBPythonClient/blob/master/examples/vectordb_langchain_embed_example.py)
 
+The above file is having this issue while searching
+```
+ERROR:__main__:Error during search: [WinError 10061] No connection could be made because the target machine actively refused it
+```
+Fixing it asap!!
+
 ## TODO
 1. Use Type Annotations and Data Validations
 2. Test and fix the langchain `CustomVectorDBVectorStore`
