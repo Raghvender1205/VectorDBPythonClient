@@ -30,7 +30,7 @@ def main():
     pdf_path = "document.pdf"
     server_url = "http://127.0.0.1:8444"
     metadata_category = "pdf_document"
-    collection_name = "sample_collection"
+    collection_name = "sample"
 
     client = VectorDBClient(server_url=server_url)
     if not os.path.exists(pdf_path):
@@ -44,9 +44,15 @@ def main():
         if collection:
             logger.info(f"Collection created: ID={collection.id}, Name='{collection.name}'")
         else:
-            logger.info(f"Collection '{collection_name}' already exists.")
+            # If collection already exists, it has been retrieved by the client
+            collection = client.get_collection(collection_name)
+            if collection:
+                logger.info(f"Collection already exists: ID={collection.id}, Name='{collection.name}'")
+            else:
+                logger.error(f"Collection '{collection_name}' exists but failed to retrieve details.")
+                return
     except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
-        logger.error(f"Exception when creating collection: {e}")
+        logger.error(f"Exception when creating/retrieving collection: {e}")
         return
 
     # Chunk pdf
@@ -86,7 +92,6 @@ def main():
                 metadatas=metadatas,
                 client=client,
                 collection_name=collection_name,
-                doc_id_prefix="doc_",
                 additional_metadata={"source": "PDF Document"}
             )
             logger.info(f"Added {len(texts)} documents to collection '{collection_name}'.")
@@ -116,7 +121,8 @@ def main():
             if question.lower() == 'exit':
                 break
 
-            response = qa_chain.run(question)
+            # Update to use the 'invoke' method to avoid deprecation warnings
+            response = qa_chain.invoke(question)
             print("\nAnswer:")
             print(response)
             print("\n")
