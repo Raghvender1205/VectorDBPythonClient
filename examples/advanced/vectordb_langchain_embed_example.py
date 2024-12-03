@@ -34,7 +34,7 @@ def get_embeddings():
 
 def main():
     """Embed document and try vector search"""
-    pdf_path = "document.pdf"
+    pdf_path = "../document.pdf"
     server_url = "http://127.0.0.1:8444"
     metadata_category = "pdf_document"
     collection_name = "sample_collection"
