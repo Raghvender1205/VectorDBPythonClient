@@ -3,3 +3,4 @@ __pycache__/
 build/
 dist/
 vectordb_client.egg-info/
+.env

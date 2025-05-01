@@ -1,11 +1,13 @@
 import os
 import logging
+from dotenv import load_dotenv, find_dotenv
 
 from langchain.chains.retrieval_qa.base import RetrievalQA
-from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain_community.document_loaders.pdf import PyPDFLoader
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from vectordb_client import VectorDBClient, VectorDBClientConnectionError, VectorDBClientRequestError, VectorDBVectorStore
+
+load_dotenv(find_dotenv("../.env"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,9 +22,13 @@ def chunk_document(pdf_path: str):
 
 def get_embeddings():
     """Get embedding model"""
-    model_name = "sentence-transformers/all-mpnet-base-v2"
-    embeddings = HuggingFaceBgeEmbeddings(model_name=model_name, model_kwargs={'device': 'cpu'})
-    return embeddings
+    embedding_model = OpenAIEmbeddings(
+        base_url=os.getenv("EMBEDDING_URL"),
+        api_key=os.getenv("EMBEDDING_API_KEY"),
+        model=os.getenv("EMBEDDING_MODEL_NAME")
+    )
+    
+    return embedding_model
 
 
 def main():
@@ -30,7 +36,7 @@ def main():
     pdf_path = "../document.pdf"
     server_url = "http://127.0.0.1:8444"
     metadata_category = "pdf_document"
-    collection_name = "sample"
+    collection_name = "sample_collection"
 
     client = VectorDBClient(server_url=server_url)
     if not os.path.exists(pdf_path):
@@ -103,11 +109,16 @@ def main():
 
     # Initialize the QA chain with an actual LLM
     try:
-        llm = ChatOllama(model="llama3.1:8b", temperature=0, cache=False)  # Ensure ChatOllama is correctly set up
+        llm = ChatOpenAI(
+            base_url=os.getenv("LLM_BASE_URL"),
+            api_key=os.getenv("LLM_API_KEY"),
+            model=os.getenv("LLM_MODEL_NAME")
+        ) # Ensure ChatOllama is correctly set up
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
             chain_type="stuff",
             retriever=vectordb_store.as_retriever(),  # Ensure 'as_retriever' method is available
+            return_source_documents=True
         )
     except Exception as e:
         logger.error(f"Exception when initializing QA chain: {e}")
@@ -123,9 +134,9 @@ def main():
 
             # Update to use the 'invoke' method to avoid deprecation warnings
             response = qa_chain.invoke(question)
-            print("\nAnswer:")
-            print(response)
-            print("\n")
+            print("\nAnswer:", response['result'])
+            for doc in response['source_documents']:
+                print(f"- Source: page {doc.metadata.get('page_number')}")
         
         except KeyboardInterrupt:
             print("\nExiting.")

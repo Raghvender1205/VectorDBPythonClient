@@ -1,11 +1,14 @@
 import os
 import numpy as np
 import logging
+from dotenv import load_dotenv, find_dotenv
 
-from langchain_community.embeddings.huggingface import HuggingFaceBgeEmbeddings
 from langchain_community.document_loaders.pdf import PyPDFLoader
+from langchain_openai import OpenAI, OpenAIEmbeddings
 
 from vectordb_client import VectorDBClient, VectorDBClientConnectionError, VectorDBClientRequestError
+
+load_dotenv(find_dotenv("../.env"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,16 +23,13 @@ def chunk_document(pdf_path: str):
 
 def get_embeddings():
     """Get embedding model"""
-    model_name = "sentence-transformers/all-mpnet-base-v2"
-    model_kwargs = {'device': 'cpu'}
-    encode_kwargs = {'normalize_embeddings': False}
-    embeddings = HuggingFaceBgeEmbeddings(
-        model_name=model_name,
-        model_kwargs=model_kwargs,
-        encode_kwargs=encode_kwargs
+    embedding_model = OpenAIEmbeddings(
+        base_url=os.getenv("EMBEDDING_URL"),
+        api_key=os.getenv("EMBEDDING_API_KEY"),
+        model=os.getenv("EMBEDDING_MODEL_NAME")
     )
     
-    return embeddings
+    return embedding_model
 
 
 def main():
