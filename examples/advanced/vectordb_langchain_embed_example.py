@@ -6,7 +6,11 @@ from dotenv import load_dotenv, find_dotenv
 from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain_openai import OpenAI, OpenAIEmbeddings
 
-from vectordb_client import VectorDBClient, VectorDBClientConnectionError, VectorDBClientRequestError
+from vectordb_client import (
+    VectorDBClient,
+    VectorDBClientConnectionError,
+    VectorDBClientRequestError,
+)
 
 load_dotenv(find_dotenv("../.env"))
 
@@ -21,14 +25,15 @@ def chunk_document(pdf_path: str):
 
     return docs
 
+
 def get_embeddings():
     """Get embedding model"""
     embedding_model = OpenAIEmbeddings(
         base_url=os.getenv("EMBEDDING_URL"),
         api_key=os.getenv("EMBEDDING_API_KEY"),
-        model=os.getenv("EMBEDDING_MODEL_NAME")
+        model=os.getenv("EMBEDDING_MODEL_NAME"),
     )
-    
+
     return embedding_model
 
 
@@ -41,15 +46,17 @@ def main():
 
     client = VectorDBClient(server_url=server_url)
     if not os.path.exists(pdf_path):
-        logger.error(f'PDF file not found at {pdf_path}')
-        return 
+        logger.error(f"PDF file not found at {pdf_path}")
+        return
 
     # Create or get collection
     logger.info(f'Creating or retrieving collection "{collection_name}"')
     try:
         collection = client.create_collection(collection_name)
         if collection:
-            logger.info(f"Collection created: ID={collection.id}, Name='{collection.name}'")
+            logger.info(
+                f"Collection created: ID={collection.id}, Name='{collection.name}'"
+            )
         else:
             logger.info(f"Collection '{collection_name}' already exists.")
     except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
@@ -57,20 +64,20 @@ def main():
         return
 
     # Chunk pdf
-    logger.info(f'Loading PDF from {pdf_path}')
+    logger.info(f"Loading PDF from {pdf_path}")
     try:
         docs = chunk_document(pdf_path)
         logger.info(f"Loaded {len(docs)} pages from PDF")
     except Exception as e:
         logger.error(f"Error loading PDF: {e}")
         return
-    
+
     # Get embedding model
     embedding_model = get_embeddings()
 
     # Embed documents
     documents = []
-    for idx , doc in enumerate(docs, start=1):
+    for idx, doc in enumerate(docs, start=1):
         text = doc.page_content.strip()
         if not text:
             logger.debug(f"Skipping empty page: {e}")
@@ -88,12 +95,14 @@ def main():
         metadata = f"{metadata_category} - Page {idx}"
         content = text
 
-        documents.append({
-            "id": doc_id,
-            "embedding": embedding,
-            "metadata": metadata,
-            "content": content
-        })
+        documents.append(
+            {
+                "id": doc_id,
+                "embedding": embedding,
+                "metadata": metadata,
+                "content": content,
+            }
+        )
 
     # Add documents to VectorDB in batch
     if not documents:
@@ -103,19 +112,23 @@ def main():
         try:
             success = client.add_documents(documents, collection_name=collection_name)
             if success:
-                logger.info(f"Added {len(documents)} documents to collection '{collection_name}'.")
+                logger.info(
+                    f"Added {len(documents)} documents to collection '{collection_name}'."
+                )
             else:
-                logger.error(f"Failed to add documents to collection '{collection_name}'.")
+                logger.error(
+                    f"Failed to add documents to collection '{collection_name}'."
+                )
         except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
-            logger.error(f"Exception when adding documents: {e}") 
+            logger.error(f"Exception when adding documents: {e}")
 
     logger.info("All documents processed.")
 
-    # Search 
+    # Search
     while True:
         try:
             question = input("Ask a question (or type 'exit' to quit): ")
-            if question.lower() == 'exit':
+            if question.lower() == "exit":
                 break
 
             # Generate embedding for the query
@@ -126,9 +139,9 @@ def main():
 
             # Find nearest neighbors
             retrieved_docs = client.search(
-                query=query_embedding, 
-                n=5, 
-                metric="Cosine", 
+                query=query_embedding,
+                n=5,
+                metric="Cosine",
                 # metadata_filter=metadata_category # TODO: Implement this feature
                 collection_name=collection_name,
             )
@@ -136,17 +149,20 @@ def main():
             if retrieved_docs:
                 print("\nRelevant Results:")
                 for doc in retrieved_docs:
-                    print(f"ID: {doc['id']}, Distance: {doc['distance']:.4f}, Metadata: {doc['metadata']}")
+                    print(
+                        f"ID: {doc['id']}, Distance: {doc['distance']:.4f}, Metadata: {doc['metadata']}"
+                    )
                     print(f"Content: {doc['content']}\n")
                 print("\n")
             else:
                 print("No documents retrieved.\n")
-        
+
         except KeyboardInterrupt:
             print("\nExiting.")
             break
         except Exception as e:
             logger.error(f"Error during search: {e}")
+
 
 if __name__ == "__main__":
     main()

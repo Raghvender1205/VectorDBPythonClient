@@ -8,8 +8,5 @@ class Collection:
     name: str
 
     @staticmethod
-    def from_dict(data: dict) -> 'Collection':
-        return Collection(
-            id=data.get("id"),
-            name=data.get('name', '')
-        )
+    def from_dict(data: dict) -> "Collection":
+        return Collection(id=data.get("id"), name=data.get("name", ""))
