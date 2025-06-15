@@ -118,6 +118,36 @@ class VectorDBClient:
                 logger.info(f"Retrying in {sleep_time} seconds...")
                 time.sleep(sleep_time)
 
+    def list_collections(self) -> List[Collection]:
+        """
+        Fetches all collections from the VectorDB server
+
+        :return: List of Collection objects
+        """
+        url = f"{self.server_url}/collections"
+
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.debug(f"Attempt {attempt}: Fetching all collections")
+                response = self.session.get(url, timeout=self.timeout)
+                if response.status_code == 200:
+                    collection_list = response.json()
+
+                    return [Collection.from_dict(c) for c in collection_list]
+                else:
+                    raise VectorDBClientRequestError(response.status_code, response.text)
+            except requests.exceptions.RequestException as e:
+                logger.error(f"RequestException on attempt {attempt}: {e}")
+                if attempt == self.max_retries:
+                    raise VectorDBClientConnectionError(
+                        f"Failed to fetch collections after {self.max_retries} attempts."
+                    ) from e
+                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
+                logger.info(f"Retrying in {sleep_time} seconds...")
+                time.sleep(sleep_time)
+
+        return []
+
     def add_document(
         self,
         embedding: List[float],
