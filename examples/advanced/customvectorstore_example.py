@@ -127,11 +127,11 @@ def main():
             base_url=os.getenv("LLM_BASE_URL"),
             api_key=os.getenv("LLM_API_KEY"),
             model=os.getenv("LLM_MODEL_NAME"),
-        )  # Ensure ChatOllama is correctly set up
+        )  
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
             chain_type="stuff",
-            retriever=vectordb_store.as_retriever(),  # Ensure 'as_retriever' method is available
+            retriever=vectordb_store.as_retriever(),  
             return_source_documents=True,
         )
     except Exception as e:
