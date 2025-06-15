@@ -1,6 +1,7 @@
 import asyncio
 from vectordb_client.async_client import AsyncVectorDBClient
 
+
 async def main():
     # Initialize the async client
     async_client = AsyncVectorDBClient(server_url="http://127.0.0.1:8444")
@@ -20,7 +21,7 @@ async def main():
         embedding=[0.2, 0.3, 0.4],
         metadata="Appendix",
         content="Content of the appendix.",
-        collection_name=collection_name
+        collection_name=collection_name,
     )
 
     if success:
@@ -34,7 +35,7 @@ async def main():
         n=1,
         metric="Euclidean",
         metadata_filter="pdf_documents_async",
-        collection_name=collection_name
+        collection_name=collection_name,
     )
 
     print("Asynchronous Search Results:")
@@ -43,6 +44,7 @@ async def main():
 
     # Close the async client
     await async_client.aclose()
+
 
 # Run the async main function
 asyncio.run(main())

@@ -5,12 +5,18 @@ from dotenv import load_dotenv, find_dotenv
 from langchain.chains.retrieval_qa.base import RetrievalQA
 from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from vectordb_client import VectorDBClient, VectorDBClientConnectionError, VectorDBClientRequestError, VectorDBVectorStore
+from vectordb_client import (
+    VectorDBClient,
+    VectorDBClientConnectionError,
+    VectorDBClientRequestError,
+    VectorDBVectorStore,
+)
 
 load_dotenv(find_dotenv("../.env"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def chunk_document(pdf_path: str):
     """Load a PDF file and extract text from each page."""
@@ -25,9 +31,9 @@ def get_embeddings():
     embedding_model = OpenAIEmbeddings(
         base_url=os.getenv("EMBEDDING_URL"),
         api_key=os.getenv("EMBEDDING_API_KEY"),
-        model=os.getenv("EMBEDDING_MODEL_NAME")
+        model=os.getenv("EMBEDDING_MODEL_NAME"),
     )
-    
+
     return embedding_model
 
 
@@ -40,36 +46,42 @@ def main():
 
     client = VectorDBClient(server_url=server_url)
     if not os.path.exists(pdf_path):
-        logger.error(f'PDF file not found at {pdf_path}')
-        return 
+        logger.error(f"PDF file not found at {pdf_path}")
+        return
 
     # Create or get collection
     logger.info(f'Creating or retrieving collection "{collection_name}"')
     try:
         collection = client.create_collection(collection_name)
         if collection:
-            logger.info(f"Collection created: ID={collection.id}, Name='{collection.name}'")
+            logger.info(
+                f"Collection created: ID={collection.id}, Name='{collection.name}'"
+            )
         else:
             # If collection already exists, it has been retrieved by the client
             collection = client.get_collection(collection_name)
             if collection:
-                logger.info(f"Collection already exists: ID={collection.id}, Name='{collection.name}'")
+                logger.info(
+                    f"Collection already exists: ID={collection.id}, Name='{collection.name}'"
+                )
             else:
-                logger.error(f"Collection '{collection_name}' exists but failed to retrieve details.")
+                logger.error(
+                    f"Collection '{collection_name}' exists but failed to retrieve details."
+                )
                 return
     except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
         logger.error(f"Exception when creating/retrieving collection: {e}")
         return
 
     # Chunk pdf
-    logger.info(f'Loading PDF from {pdf_path}')
+    logger.info(f"Loading PDF from {pdf_path}")
     try:
         docs = chunk_document(pdf_path)
         logger.info(f"Loaded {len(docs)} pages from PDF")
     except Exception as e:
         logger.error(f"Error loading PDF: {e}")
         return
-    
+
     # Get embedding model
     embedding_model = get_embeddings()
 
@@ -98,11 +110,13 @@ def main():
                 metadatas=metadatas,
                 client=client,
                 collection_name=collection_name,
-                additional_metadata={"source": "PDF Document"}
+                additional_metadata={"source": "PDF Document"},
             )
-            logger.info(f"Added {len(texts)} documents to collection '{collection_name}'.")
+            logger.info(
+                f"Added {len(texts)} documents to collection '{collection_name}'."
+            )
         except Exception as e:
-            logger.error(f"Exception when adding texts: {e}") 
+            logger.error(f"Exception when adding texts: {e}")
             return
 
     logger.info("All documents processed and added to VectorDB.")
@@ -112,13 +126,13 @@ def main():
         llm = ChatOpenAI(
             base_url=os.getenv("LLM_BASE_URL"),
             api_key=os.getenv("LLM_API_KEY"),
-            model=os.getenv("LLM_MODEL_NAME")
-        ) # Ensure ChatOllama is correctly set up
+            model=os.getenv("LLM_MODEL_NAME"),
+        )  
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
             chain_type="stuff",
-            retriever=vectordb_store.as_retriever(),  # Ensure 'as_retriever' method is available
-            return_source_documents=True
+            retriever=vectordb_store.as_retriever(),  
+            return_source_documents=True,
         )
     except Exception as e:
         logger.error(f"Exception when initializing QA chain: {e}")
@@ -129,15 +143,15 @@ def main():
     while True:
         try:
             question = input("Ask a question (or type 'exit' to quit): ")
-            if question.lower() == 'exit':
+            if question.lower() == "exit":
                 break
 
             # Update to use the 'invoke' method to avoid deprecation warnings
             response = qa_chain.invoke(question)
-            print("\nAnswer:", response['result'])
-            for doc in response['source_documents']:
+            print("\nAnswer:", response["result"])
+            for doc in response["source_documents"]:
                 print(f"- Source: page {doc.metadata.get('page_number')}")
-        
+
         except KeyboardInterrupt:
             print("\nExiting.")
             break

@@ -14,13 +14,14 @@ from vectordb_client.models import Collection
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class AsyncVectorDBClient:
     def __init__(
         self,
         server_url: str = "http://127.0.0.1:8444",
         timeout: int = 10,
         max_retries: int = 3,
-        backoff_factor: float = 0.5
+        backoff_factor: float = 0.5,
     ):
         """
         Initializes the VectorDBClient
@@ -34,8 +35,9 @@ class AsyncVectorDBClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
-        self.client = httpx.AsyncClient(timeout=self.timeout, headers={"Content-Type": "application/json"})
-
+        self.client = httpx.AsyncClient(
+            timeout=self.timeout, headers={"Content-Type": "application/json"}
+        )
 
     async def acreate_collection(self, collection_name: str) -> Optional[Collection]:
         """
@@ -49,8 +51,12 @@ class AsyncVectorDBClient:
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                logger.debug(f"Attempt {attempt}: Creating collection '{collection_name}'")
-                response = await self.client.post(url, json=payload, timeout=self.timeout)
+                logger.debug(
+                    f"Attempt {attempt}: Creating collection '{collection_name}'"
+                )
+                response = await self.client.post(
+                    url, json=payload, timeout=self.timeout
+                )
                 if response.status_code == 200:
                     collection_data = response.json()
                     return Collection.from_dict(collection_data)
@@ -58,7 +64,9 @@ class AsyncVectorDBClient:
                     logger.warning(f"Collection '{collection_name}' already exists.")
                     return None
                 else:
-                    raise VectorDBClientRequestError(response.status_code, response.text)
+                    raise VectorDBClientRequestError(
+                        response.status_code, response.text
+                    )
             except httpx.RequestError as e:
                 logger.error(f"RequestError on attempt {attempt}: {e}")
                 if attempt == self.max_retries:
@@ -71,8 +79,14 @@ class AsyncVectorDBClient:
 
         return None
 
-
-    async def aadd_document(self, id: int, embedding: List[float], metadata: str, content: str, collection_name: str) -> bool:
+    async def aadd_document(
+        self,
+        id: int,
+        embedding: List[float],
+        metadata: str,
+        content: str,
+        collection_name: str,
+    ) -> bool:
         """
         Asynchronously Adds a document to the VectorDB.
 
@@ -89,17 +103,23 @@ class AsyncVectorDBClient:
             "embedding": embedding,
             "metadata": metadata,
             "content": content,
-            "collection_name": collection_name
+            "collection_name": collection_name,
         }
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                logger.debug(f"Attempt {attempt}: Adding document with id {id} to collection '{collection_name}'")
-                response = await self.client.post(url, json=payload, timeout=self.timeout)
+                logger.debug(
+                    f"Attempt {attempt}: Adding document with id {id} to collection '{collection_name}'"
+                )
+                response = await self.client.post(
+                    url, json=payload, timeout=self.timeout
+                )
                 if response.status_code == 200:
                     return True
                 else:
-                    raise VectorDBClientRequestError(response.status_code, response.text)
+                    raise VectorDBClientRequestError(
+                        response.status_code, response.text
+                    )
             except httpx.RequestError as e:
                 logger.error(f"RequestError on attempt {attempt}: {e}")
                 if attempt == self.max_retries:
@@ -112,7 +132,6 @@ class AsyncVectorDBClient:
 
         return False
 
-
     async def aadd_documents(self, documents: List[Dict], collection_name: str) -> bool:
         """
         Asynchronously adds multiple documents to a specific collection in the VectorDB.
@@ -124,18 +143,24 @@ class AsyncVectorDBClient:
         url = f"{self.server_url}/add_documents"
         # Ensure all documents have the collection_name
         for doc in documents:
-            doc['collection_name'] = collection_name
+            doc["collection_name"] = collection_name
 
         payload = {"documents": documents}
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                logger.debug(f"Attempt {attempt}: Adding {len(documents)} documents to collection '{collection_name}'")
-                response = await self.client.post(url, json=payload, timeout=self.timeout)
+                logger.debug(
+                    f"Attempt {attempt}: Adding {len(documents)} documents to collection '{collection_name}'"
+                )
+                response = await self.client.post(
+                    url, json=payload, timeout=self.timeout
+                )
                 if response.status_code == 200:
                     return True
                 else:
-                    raise VectorDBClientRequestError(response.status_code, response.text)
+                    raise VectorDBClientRequestError(
+                        response.status_code, response.text
+                    )
             except httpx.RequestError as e:
                 logger.error(f"RequestError on attempt {attempt}: {e}")
                 if attempt == self.max_retries:
@@ -147,7 +172,6 @@ class AsyncVectorDBClient:
                 await asyncio.sleep(sleep_time)
 
         return False
-
 
     # TODO: Implement Metadata filtering
     async def asearch(
@@ -174,17 +198,23 @@ class AsyncVectorDBClient:
             "n": n,
             "metric": metric,
             # "metadata_filter": metadata_filter
-            "collection_name": collection_name
+            "collection_name": collection_name,
         }
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                logger.debug(f"Attempt {attempt}: Searching in collection '{collection_name}' with metric '{metric}'")
-                response = await self.client.post(url, json=payload, timeout=self.timeout)
+                logger.debug(
+                    f"Attempt {attempt}: Searching in collection '{collection_name}' with metric '{metric}'"
+                )
+                response = await self.client.post(
+                    url, json=payload, timeout=self.timeout
+                )
                 if response.status_code == 200:
                     return response.json()
                 else:
-                    raise VectorDBClientRequestError(response.status_code, response.text)
+                    raise VectorDBClientRequestError(
+                        response.status_code, response.text
+                    )
             except httpx.RequestError as e:
                 logger.error(f"RequestError on attempt {attempt}: {e}")
                 if attempt == self.max_retries:
@@ -196,7 +226,6 @@ class AsyncVectorDBClient:
                 await asyncio.sleep(sleep_time)
 
         return []
-
 
     async def close(self):
         """Closes the client connection."""
