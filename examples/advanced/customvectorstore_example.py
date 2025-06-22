@@ -1,5 +1,7 @@
 import os
 import logging
+from pathlib import Path
+from typing import List
 from dotenv import load_dotenv, find_dotenv
 
 from langchain.chains.retrieval_qa.base import RetrievalQA
@@ -17,16 +19,23 @@ load_dotenv(find_dotenv("../.env"))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+PDF_PATH = Path("../document.pdf")
+SERVER_URL = "http://127.0.0.1:8444"
+COLLECTION_NAME = "sample_collection"
+METRIC = "cosine"           # or "dot", "euclidean"
+SOURCE_TAG = "PDF document" # extra metadata tag
+EMBED_DIM = 1536
 
-def chunk_document(pdf_path: str):
+
+def chunk_document(path: Path) -> List[str]:
     """Load a PDF file and extract text from each page."""
-    loader = PyPDFLoader(pdf_path)
+    loader = PyPDFLoader(str(path))
     docs = loader.load()
+    
+    return [d.page_content.strip() for d in docs if d.page_content.strip()]
 
-    return docs
 
-
-def get_embeddings():
+def get_embedding_model():
     """Get embedding model"""
     embedding_model = OpenAIEmbeddings(
         base_url=os.getenv("EMBEDDING_URL"),
@@ -39,125 +48,83 @@ def get_embeddings():
 
 def main():
     """Embed document and perform vector search using VectorDBVectorStore and LangChain"""
-    pdf_path = "../document.pdf"
-    server_url = "http://127.0.0.1:8444"
-    metadata_category = "pdf_document"
-    collection_name = "sample_collection"
+    client = VectorDBClient(server_url=SERVER_URL)
 
-    client = VectorDBClient(server_url=server_url)
-    if not os.path.exists(pdf_path):
-        logger.error(f"PDF file not found at {pdf_path}")
+    if not PDF_PATH.exists():
+        logger.error("PDF file not found: %s", PDF_PATH)
         return
+    
+    # Embedding model
+    embedding = get_embedding_model()
 
-    # Create or get collection
-    logger.info(f'Creating or retrieving collection "{collection_name}"')
-    try:
-        collection = client.create_collection(collection_name)
-        if collection:
-            logger.info(
-                f"Collection created: ID={collection.id}, Name='{collection.name}'"
-            )
-        else:
-            # If collection already exists, it has been retrieved by the client
-            collection = client.get_collection(collection_name)
-            if collection:
-                logger.info(
-                    f"Collection already exists: ID={collection.id}, Name='{collection.name}'"
-                )
-            else:
-                logger.error(
-                    f"Collection '{collection_name}' exists but failed to retrieve details."
-                )
-                return
-    except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
-        logger.error(f"Exception when creating/retrieving collection: {e}")
-        return
-
-    # Chunk pdf
-    logger.info(f"Loading PDF from {pdf_path}")
-    try:
-        docs = chunk_document(pdf_path)
-        logger.info(f"Loaded {len(docs)} pages from PDF")
-    except Exception as e:
-        logger.error(f"Error loading PDF: {e}")
-        return
-
-    # Get embedding model
-    embedding_model = get_embeddings()
-
-    # Prepare texts and metadatas
-    texts = []
-    metadatas = []
-    for idx, doc in enumerate(docs, start=1):
-        text = doc.page_content.strip()
-        if not text:
-            logger.debug(f"Skipping empty page {idx}")
-            continue
-
-        # Metadata can include more information as needed
-        metadata = {"category": metadata_category, "page_number": idx}
-        texts.append(text)
-        metadatas.append(metadata)
-
-    # Initialize the custom VectorStore using 'from_texts'
+    llm = ChatOpenAI(
+        base_url=os.getenv("LLM_BASE_URL"),
+        api_key=os.getenv("LLM_API_KEY"),
+        model=os.getenv("LLM_MODEL_NAME"),
+    )
+    
+    # Read PDF
+    texts = chunk_document(PDF_PATH)
     if not texts:
-        logger.warning("No texts to add after processing PDF.")
-    else:
-        try:
-            vectordb_store = VectorDBVectorStore.from_texts(
-                texts=texts,
-                embedding=embedding_model,
-                metadatas=metadatas,
-                client=client,
-                collection_name=collection_name,
-                additional_metadata={"source": "PDF Document"},
-            )
-            logger.info(
-                f"Added {len(texts)} documents to collection '{collection_name}'."
-            )
-        except Exception as e:
-            logger.error(f"Exception when adding texts: {e}")
-            return
-
-    logger.info("All documents processed and added to VectorDB.")
-
-    # Initialize the QA chain with an actual LLM
-    try:
-        llm = ChatOpenAI(
-            base_url=os.getenv("LLM_BASE_URL"),
-            api_key=os.getenv("LLM_API_KEY"),
-            model=os.getenv("LLM_MODEL_NAME"),
-        )  
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=vectordb_store.as_retriever(),  
-            return_source_documents=True,
-        )
-    except Exception as e:
-        logger.error(f"Exception when initializing QA chain: {e}")
+        logger.error("PDF file not found: %s", PDF_PATH)
         return
+    logger.info("Loaded %d pages from PDF", len(texts))
 
-    # Interactive search
-    logger.info("You can now ask questions. Type 'exit' to quit.")
-    while True:
-        try:
-            question = input("Ask a question (or type 'exit' to quit): ")
-            if question.lower() == "exit":
+    # Create Collection
+    try:
+        client.create_collection(
+            name=COLLECTION_NAME,
+            dimension=EMBED_DIM,
+            metric=METRIC,
+        )
+        logger.info("Collection created (%s, dim=%d, %s)", COLLECTION_NAME, EMBED_DIM, METRIC)
+    except VectorDBClientRequestError as exc:
+        if exc.status_code == 409:
+            logger.info("Collection already exists, using it")
+        else:
+            raise
+    except VectorDBClientConnectionError as exc:
+        logger.error("Cannot reach Vector DB server: %s", exc)
+        return
+    
+    # Metadata Per page
+    metadatas = [
+        {"page_number": i + 1, "source": SOURCE_TAG}
+        for i in range(len(texts))
+    ]
+
+    # Insert to vectordb
+    vectorstore = VectorDBVectorStore.from_texts(
+        texts=texts,
+        embedding=embedding,
+        metadatas=metadatas,
+        client=client,
+        collection_name=COLLECTION_NAME,
+        metric=METRIC,
+    )
+    logger.info("PDF embedded and stored (collection=%s)", COLLECTION_NAME)
+
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=vectorstore.as_retriever(),
+        return_source_documents=True,
+    )
+
+    print("\nLoaded! Ask questions (type 'exit' to quit).")
+    try:
+        while True:
+            q = input("\n► ")
+            if q.lower().strip() == "exit":
                 break
-
-            # Update to use the 'invoke' method to avoid deprecation warnings
-            response = qa_chain.invoke(question)
-            print("\nAnswer:", response["result"])
-            for doc in response["source_documents"]:
-                print(f"- Source: page {doc.metadata.get('page_number')}")
-
-        except KeyboardInterrupt:
-            print("\nExiting.")
-            break
-        except Exception as e:
-            logger.error(f"Error during search: {e}")
-
+            resp = qa_chain.invoke(q)
+            print("\nAnswer:\n", resp["result"])
+            print("\nSources:")
+            for doc in resp["source_documents"]:
+                pg = doc.metadata.get("page_number")
+                print(f" • page {pg}")
+    except KeyboardInterrupt:
+        print("\nBye!")
 
 if __name__ == "__main__":
     main()

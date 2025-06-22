@@ -27,6 +27,11 @@ if "qa_chain" not in st.session_state:
 if "collection_name" not in st.session_state:
     st.session_state.collection_name = ""
 
+# Constants for embedding dimension and metric
+EMBED_DIM = 1536  # For OpenAI models
+METRIC = "cosine"  # or "dot", "euclidean"
+SOURCE_TAG = "PDF Document"
+
 def initialize_client():
     """Initialize VectorDB client"""
     server_url = "http://127.0.0.1:8444"
@@ -65,7 +70,7 @@ def process_document(file, collection_name, client):
         for idx, doc in enumerate(docs, start=1):
             text = doc.page_content.strip()
             if text:
-                metadata = {"category": "pdf_document", "page_number": idx}
+                metadata = {"page_number": idx, "source": SOURCE_TAG}
                 texts.append(text)
                 metadatas.append(metadata)
         
@@ -75,6 +80,24 @@ def process_document(file, collection_name, client):
         
         # Get embedding model
         embedding_model = get_embeddings()
+
+        # Explicitly create collection before inserting
+        try:
+            client.create_collection(
+                name=collection_name,
+                dimension=EMBED_DIM,
+                metric=METRIC,
+            )
+            logger.info(f"Collection created ({collection_name}, dim={EMBED_DIM}, {METRIC})")
+        except VectorDBClientRequestError as exc:
+            if getattr(exc, "status_code", None) == 409:
+                logger.info("Collection already exists, using it")
+            else:
+                st.error(f"Error creating collection: {str(exc)}")
+                return False
+        except VectorDBClientConnectionError as exc:
+            st.error(f"Cannot reach Vector DB server: {str(exc)}")
+            return False
         
         # Add to vector store
         vectordb_store = VectorDBVectorStore.from_texts(
@@ -83,7 +106,7 @@ def process_document(file, collection_name, client):
             metadatas=metadatas,
             client=client,
             collection_name=collection_name,
-            additional_metadata={"source": "PDF Document"},
+            metric=METRIC,
         )
         
         # Clean up temporary file
@@ -105,6 +128,7 @@ def initialize_qa_chain(collection_name, client):
             client=client,
             collection_name=collection_name,
             embedding_model=embedding_model,
+            metric=METRIC,
         )
         
         # Create QA chain
@@ -170,24 +194,30 @@ def main():
         # Document upload for Ingest mode
         if mode == "Ingest & Chat":
             st.subheader("Document Upload")
-            uploaded_file = st.file_uploader(
-                "Upload PDF Document",
+            uploaded_files = st.file_uploader(
+                "Upload PDF Documents",
                 type=["pdf"],
-                help="Upload a PDF document to ingest into the collection"
+                accept_multiple_files=True,
+                help="Upload one or more PDF documents to ingest into the collection"
             )
-            
-            if uploaded_file and st.session_state.collection_name:
-                if st.button("Process Document"):
-                    with st.spinner("Processing document..."):
-                        client = initialize_client()
-                        if process_document(uploaded_file, st.session_state.collection_name, client):
-                            st.success("Document processed successfully!")
-                            # Initialize QA chain after successful ingestion
-                            st.session_state.qa_chain = initialize_qa_chain(
-                                st.session_state.collection_name,
-                                client
-                            )
-    
+
+            if uploaded_files and st.session_state.collection_name:
+                if st.button("Process Documents"):
+                    client = initialize_client()
+                    success_count = 0
+                    with st.spinner("Processing documents..."):
+                        for file in uploaded_files:
+                            result = process_document(file, st.session_state.collection_name, client)
+                            if result:
+                                success_count += 1
+                    if success_count:
+                        st.success(f"{success_count} document(s) processed successfully!")
+                        st.session_state.qa_chain = initialize_qa_chain(
+                            st.session_state.collection_name, client
+                        )
+                    else:
+                        st.error("No documents were processed successfully.")
+
     # Main chat interface
     if st.session_state.collection_name:
         # Initialize QA chain if not already done

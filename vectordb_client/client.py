@@ -4,9 +4,9 @@ import time
 from typing import Optional, List, Dict
 
 from vectordb_client.exceptions import (
-    VectorDBClientConnectionError,
+    VectorDBClientConnectionError, 
     VectorDBClientRequestError,
-    VectorDBClientValidationError,
+    VectorDBClientValidationError
 )
 from vectordb_client.models import Collection
 
@@ -14,14 +14,13 @@ from vectordb_client.models import Collection
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 class VectorDBClient:
     def __init__(
         self,
         server_url: str = "http://127.0.0.1:8444",
         timeout: int = 10,
         max_retries: int = 3,
-        backoff_factor: float = 0.5,
+        backoff_factor: float = 0.5
     ):
         """
         Initializes the VectorDBClient
@@ -36,135 +35,90 @@ class VectorDBClient:
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
         self.session = requests.Session()
-        self.session.headers.update({"Content-Type": "application/json"})
+        self.session.headers.update({'Content-Type': 'application/json'})
 
-    def create_collection(self, collection_name: str) -> Optional[Collection]:
+    def _retry_loop(self, verb: str, url: str, **req_kwargs):
+        """
+        Generic retry wrapper
+        """
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                resp = self.session.request(
+                    method=verb, url=url, timeout=self.timeout, **req_kwargs
+                )
+
+                return resp
+            except requests.exceptions.RequestException as exc:
+                logger.error("RequestException on attempt %d: %s", attempt, exc)
+                if attempt == self.max_retries:
+                    raise VectorDBClientConnectionError(
+                        f"Request to {url} failed after {self.max_retries} tries"
+                    ) from exc
+                sleep_s = self.backoff_factor * (2 ** (attempt - 1))
+                logger.debug("Retrying in %.1fs ...", sleep_s)
+                time.sleep(sleep_s)
+
+    def create_collection(
+        self, 
+        name: str,
+        dimension: int,
+        metric: str = "cosine"
+    ) -> Optional[Collection]:
         """
         Creates a new collection in the vectordb
 
-        :param collection_name: Name of the collection
-        :return: Collection object if created, None otherwise
+        :param name: Name of the collection
+        :return: Collection object if created, None otherwise 
         """
         url = f"{self.server_url}/create_collection"
-        payload = {"name": collection_name}
+        payload = {"name": name, "dimension": dimension, "metric": metric}
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                logger.debug(
-                    f"Attempt {attempt}: Creating collection '{collection_name}'"
-                )
-                response = self.session.post(url, json=payload, timeout=self.timeout)
-                if response.status_code == 200:
-                    collection_data = response.json()
-                    logger.info(f"Collection '{collection_name}' created successfully.")
-
-                    return Collection.from_dict(collection_data)
-                elif response.status_code == 409:
-                    logger.warning(f"Collection '{collection_name}' already exists.")
-                    existing_collection = self.get_collection(collection_name)
-
-                    return existing_collection
-                else:
-                    raise VectorDBClientRequestError(
-                        response.status_code, response.text
-                    )
-            except requests.exceptions.RequestException as e:
-                logger.error(f"RequestException on attempt {attempt}: {e}")
-                if attempt == self.max_retries:
-                    raise VectorDBClientConnectionError(
-                        f"Failed to create collection '{collection_name}' after {self.max_retries} attempts."
-                    ) from e
-                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
-                logger.info(f"Retrying in {sleep_time} seconds...")
-                time.sleep(sleep_time)
-
-    def get_collection(self, collection_name: str) -> Optional[Collection]:
+        resp = self._retry_loop("POST", url, json=payload)
+        if resp.status_code == 200:
+            return Collection.from_dict(resp.json())
+        if resp.status_code == 409:
+            raise VectorDBClientRequestError(409, f"Collection '{name}' exists")
+        
+        raise VectorDBClientRequestError(resp.status_code, resp.text)
+    
+    def get_collection(self, name: str) -> Optional[Collection]:
         """
-        Retrieves an existing collection by name
-
-        :param collection_name: Name of the collection
-        :return: Collection object if found, None otherwise
+        Get collection from VectorDB
         """
-        url = f"{self.server_url}/collections/{collection_name}"
-
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                logger.debug(
-                    f"Attempt {attempt}: Retrieving collection '{collection_name}'"
-                )
-                response = self.session.get(url, timeout=self.timeout)
-                if response.status_code == 200:
-                    collection_data = response.json()
-                    logger.info(
-                        f"Collection '{collection_name}' retrieved successfully."
-                    )
-
-                    return Collection.from_dict(collection_data)
-                elif response.status_code == 404:
-                    logger.warning(f"Collection '{collection_name}' not found.")
-
-                    return None
-                else:
-                    raise VectorDBClientRequestError(
-                        response.status_code, response.text
-                    )
-            except requests.exceptions.RequestException as e:
-                logger.error(f"RequestException on attempt {attempt}: {e}")
-                if attempt == self.max_retries:
-                    raise VectorDBClientConnectionError(
-                        f"Failed to retrieve collection '{collection_name}' after {self.max_retries} attempts."
-                    ) from e
-                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
-                logger.info(f"Retrying in {sleep_time} seconds...")
-                time.sleep(sleep_time)
-
+        url = f"{self.server_url}/collections/{name}"
+        resp = self._retry_loop("GET", url)
+        if resp.status_code == 200:
+            return Collection.from_dict(resp.json())
+        if resp.status_code == 404:
+            return None
+        
+        raise VectorDBClientRequestError(resp.status_code, resp.text)
+    
     def list_collections(self) -> List[Collection]:
         """
-        Fetches all collections from the VectorDB server
-
-        :return: List of Collection objects
+        List all the collections from VectorDB
         """
         url = f"{self.server_url}/collections"
-
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                logger.debug(f"Attempt {attempt}: Fetching all collections")
-                response = self.session.get(url, timeout=self.timeout)
-                if response.status_code == 200:
-                    collection_list = response.json()
-
-                    return [Collection.from_dict(c) for c in collection_list]
-                else:
-                    raise VectorDBClientRequestError(response.status_code, response.text)
-            except requests.exceptions.RequestException as e:
-                logger.error(f"RequestException on attempt {attempt}: {e}")
-                if attempt == self.max_retries:
-                    raise VectorDBClientConnectionError(
-                        f"Failed to fetch collections after {self.max_retries} attempts."
-                    ) from e
-                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
-                logger.info(f"Retrying in {sleep_time} seconds...")
-                time.sleep(sleep_time)
-
-        return []
+        resp = self._retry_loop("GET", url)
+        
+        if resp.status_code == 200:
+            return [Collection.from_dict(obj) for obj in resp.json()]
+        
+        raise VectorDBClientRequestError(resp.status_code, resp.text)
+        
 
     def add_document(
-        self,
-        embedding: List[float],
-        metadata: str,
+        self, 
+        embedding: List[float], 
+        metadata: str, 
         content: str,
         collection_name: str,
-        id: Optional[int] = None,
-    ) -> bool:
+        doc_id: Optional[int] = None
+    ) -> int:
         """
         Adds a document to the VectorDB.
 
-        :param id: Unique identifier of the document
-        :param embedding: Embedding vector of the document
-        :param metadata: Metadata associated with the document
-        param content: Content of the document
-        :param collection_name: Name of the collection to add the document
-        :return: True if document was added, False otherwise
+        Returns server-generated ID if you have not supplied one
         """
         url = f"{self.server_url}/add_document"
         payload = {
@@ -173,134 +127,62 @@ class VectorDBClient:
             "content": content,
             "collection_name": collection_name,
         }
+        if doc_id is not None:
+            payload["id"] = doc_id
 
-        if id is not None:
-            payload["id"] = id
+        resp = self._retry_loop("POST", url, json=payload)
+        if resp.status_code == 200:
+            return resp.json()["id"]
+        
+        raise VectorDBClientRequestError(resp.status_code, resp.text)
+    
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                logger.debug(
-                    f"Attempt {attempt}: Adding document with id {id} to collection '{collection_name}'"
-                )
-                response = self.session.post(url, json=payload, timeout=self.timeout)
-                if response.status_code == 200:
-                    result = response.json()
-                    logger.info(f"Document added successfully with ID {result['id']}")
-                    return result["id"]
-
-                else:
-                    raise VectorDBClientRequestError(
-                        response.status_code, response.text
-                    )
-            except requests.exceptions.RequestException as e:
-                logger.error(f"RequestException on attempt {attempt}: {e}")
-                if attempt == self.max_retries:
-                    raise VectorDBClientConnectionError(
-                        f"Failed to add document {id} after {self.max_retries} attempts."
-                    ) from e
-                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
-                logger.info(f"Retrying in {sleep_time} seconds...")
-                time.sleep(sleep_time)
-
-        return None
-
-    def add_documents(self, documents: List[Dict], collection_name: str) -> bool:
+    def add_documents(self, documents: List[Dict], collection_name: str) -> List[int]:
         """
         Adds multiple documents to the VectorDB
-        Each document is a directory with keys: id, embedding, metadata.
 
-        :param documents: List of document dictionaries with keys: id, embedding, metadata, content
-        :param collection_name: Name of the collection to add the documents to
-        :return: True if all documents were added successfully, False otherwise
+        Returns list of IDs that were *actually* inserted.
         """
+        # ensure each doc contains its collection
+        for d in documents:
+            d["collection_name"] = collection_name
+            if d.get("id") is None:  # trim empty id
+                d.pop("id", None)
+
         url = f"{self.server_url}/add_documents"
-        # Ensure all documents have the collection_name
-        for doc in documents:
-            doc["collection_name"] = collection_name
-            if "id" in doc and doc["id"] is None:
-                del doc["id"]  # remove empty Ids
+        resp = self._retry_loop("POST", url, json={"documents": documents})
 
-        payload = {"documents": documents}
+        if resp.status_code == 200:
+            return [d["id"] for d in resp.json()["documents"]]
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                logger.debug(
-                    f"Attempt {attempt}: Adding {len(documents)} documents to collection '{collection_name}'"
-                )
-                response = self.session.post(url, json=payload, timeout=self.timeout)
-                if response.status_code in (200, 207): # Accept both full and partial success
-                    json_resp = response.json()
+        if resp.status_code == 207:
+            body = resp.json()
+            ids = [d["id"] for d in body.get("documents", []) if d["status"] == "success"]
+            for err in body.get("errors", []):
+                logger.warning("Server insert error: %s", err)
+            return ids
 
-                    ids = []
-                    for doc in json_resp.get("documents", []):
-                        if doc.get("status") == "success":
-                            ids.append(doc.get("id"))
-                    
-                    return ids
-                else:
-                    raise VectorDBClientRequestError(
-                        response.status_code, response.text
-                    )
-            except requests.exceptions.RequestException as e:
-                logger.error(f"RequestException on attempt {attempt}: {e}")
-                if attempt == self.max_retries:
-                    raise VectorDBClientConnectionError(
-                        f"Failed to add documents after {self.max_retries} attempts."
-                    ) from e
-                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
-                logger.info(f"Retrying in {sleep_time} seconds...")
-                time.sleep(sleep_time)
-
-        return False
+        raise VectorDBClientRequestError(resp.status_code, resp.text)
 
     # TODO: Add metadata filtering
     def search(
         self,
         query: List[float],
         n: int,
-        metric: str = "Dot",
-        # metadata_filter: Optional[str] = None,
-        collection_name: str = "",
+        collection_name: str,
     ) -> List[Dict]:
         """
-        Finds the neighboring vectors to a query vector
-
-        :param query: Query embedding vector
-        :param n: Number of neighbors to retrieve
-        :param metric: Distance metric to use ("Euclidean", "Cosine", "Dot")
-        :param metadata_filter: Filter for metadata
-        :param collection_name: Name of the collection to search within
-        :return: A list of neighboring vectors (documents)
+        Similarity Search
         """
         url = f"{self.server_url}/search"
         payload = {
             "query": query,
             "n": n,
-            "metric": metric,
-            # "metadata_filter": metadata_filter
             "collection_name": collection_name,
         }
 
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                logger.debug(
-                    f"Attempt {attempt}: Searching in collection '{collection_name}' with metric '{metric}'"
-                )
-                response = self.session.post(url, json=payload, timeout=self.timeout)
-                if response.status_code == 200:
-                    return response.json()
-                else:
-                    raise VectorDBClientRequestError(
-                        response.status_code, response.text
-                    )
-            except requests.exceptions.RequestException as e:
-                logger.error(f"RequestException on attempt {attempt}: {e}")
-                if attempt == self.max_retries:
-                    raise VectorDBClientConnectionError(
-                        f"Failed to search after {self.max_retries} attempts."
-                    ) from e
-                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
-                logger.info(f"Retrying in {sleep_time} seconds...")
-                time.sleep(sleep_time)
-
-        return []
+        resp = self._retry_loop("POST", url, json=payload)
+        if resp.status_code == 200:
+            return resp.json()
+        
+        raise VectorDBClientRequestError(resp.status_code, resp.text)

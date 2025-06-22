@@ -1,6 +1,6 @@
 import logging
 import json
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Sequence
 from typing_extensions import Type
 
 from langchain.vectorstores.base import VectorStore
@@ -23,6 +23,7 @@ class VectorDBVectorStore(VectorStore):
         client: VectorDBClient,
         collection_name: str,
         embedding_model: Any,
+        metric: str = "cosine",
     ):
         """
         Initializes the VectorDBVectorStore
@@ -30,17 +31,44 @@ class VectorDBVectorStore(VectorStore):
         :param client: VectorDBClient
         :param collection_name: The name of the collection to use.
         :param embedding_model: Embedding model instance.
+        :param metric: Distance Metric to use
         """
         self.client = client
         self.collection_name = collection_name
         self.embedding_model = embedding_model
+        self.metric = metric  # "cosine" | "euclidean" | "dot"
 
     @property
     def _vectorstore_type(self) -> str:
         return "vectordbvectorstore"
+    
+    def _ensure_collection(self, dim: int) -> None:
+        """
+        Lazy Create collection 
+        """
+        if self.client.get_collection(self.collection_name):
+            return # already exists
+        
+        logger.info(
+            "Creating collection '%s' (dim=%d metric=%s)",
+            self.collection_name,
+            dim,
+            self.metric
+        )
+        try:
+            self.client.create_collection(
+                name=self.collection_name,
+                dimension=dim,
+                metric=self.metric
+            )
+        except VectorDBClientRequestError as exc:
+            if exc.status_code == 400:
+                logger.debug("Collection already exists, continuing")
+            else:
+                raise
 
     def add_texts(
-        self, texts: List[str], metadatas: Optional[List[dict]] = None, **kwargs: Any
+        self, texts: List[str], metadatas: Optional[Sequence[dict]] = None, **kwargs: Any
     ) -> List[str]:
         """
         Add multiple texts to the vector store
@@ -49,51 +77,76 @@ class VectorDBVectorStore(VectorStore):
         :param metadatas: Optional list of metadata dictionaries
         :return: List of document IDs
         """
-        documents = []
-        for idx, text in enumerate(texts):
-            metadata = metadatas[idx] if metadatas and idx < len(metadatas) else {}
+        if not texts:
+            return []
+        
+        documents: List[Dict] = []
+        embed_dim: Optional[int] = None
+
+        for idx, txt in enumerate(texts):
             try:
-                # Generate embedding using the embedding model's method
-                embedding = self.embedding_model.embed_documents([text])[0]
-                if embedding is None:
-                    logger.error(f"Failed to generate embedding for text index {idx}")
-                    continue
-            except Exception as e:
-                logger.error(
-                    f"Exception during embedding generation for text index {idx}: {e}"
-                )
+                vec = self.embedding_model.embed_documents([txt])[0]
+            except Exception as exc: # pylint: disable=broad-except
+                logger.error("Embedding failed for item %d: %s", idx, exc)
                 continue
 
-            metadata.update(kwargs.get("additional_metadata", {}))
-            # Serialize metadata to JSON string as Rust backend expects a string
-            metadata_str = json.dumps(metadata)
+            if vec is None:
+                logger.error("Embedding model returned None for item %d", idx)
+                continue
+
+            if embed_dim is None:
+                embed_dim = len(vec)
+
+            meta = (
+                metadatas[idx].copy() if metadatas and idx < len(metadatas) else {}
+            )
+            meta.update(kwargs.get("additional_metadata", {}))
+
             documents.append(
                 {
-                    "embedding": embedding,
-                    "metadata": metadata_str,
-                    "content": text,
+                    "embedding": vec,
+                    "metadata": json.dumps(meta),  # server expects string
+                    "content": txt,
                 }
             )
-
+        
         if not documents:
-            logger.warning("No documents were successfully embedded and added.")
+            logger.warning("No documents were successfully embedded")
             return []
+        
+        # Ensure collection 
+        self._ensure_collection(embed_dim)
 
         try:
-            doc_ids = self.client.add_documents(documents, self.collection_name)
-            if doc_ids:
-                logger.info(f"Added {len(doc_ids)} documents to collection '{self.collection_name}'.")
-                
-                return [str(doc_id) for doc_id in doc_ids]
-            else:
-                logger.warning("No documents were successfully added")
+            ids = self.client.add_documents(documents, self.collection_name)
+            if not ids:
+                logger.warning("Server inserted 0 of %d documents", len(documents))
+                return []
 
-        except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
-            logger.error(f"Exception when adding documents: {e}")
+            logger.info("Inserted %d / %d docs", len(ids), len(documents))
+            
+            return [str(i) for i in ids]
+
+        except (VectorDBClientConnectionError, VectorDBClientRequestError) as exc:
+            logger.error("add_documents failed: %s", exc)
+            
             return []
 
+    def _embed_query(self, query: str) -> Optional[List[float]]:
+        """
+        Embed the input query
+        """
+        try:
+            vec = self.embedding_model.embed_documents([query])[0]
+            
+            return vec
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Query embedding failed: %s", exc)
+            
+            return None
+
     def similarity_search(
-        self, query: str, k: int = 4, **kwargs: Any
+        self, query: str, k: int = 4, **_: Any
     ) -> List[Document]:
         """
         Performs a similarity search
@@ -102,39 +155,31 @@ class VectorDBVectorStore(VectorStore):
         :param k: Number of top results to return
         :return: List of documents
         """
-        try:
-            query_embedding = self.embedding_model.embed_documents([query])[0]
-            if query_embedding is None:
-                logger.error("Failed to generate embedding for the query")
-                return []
-        except Exception as e:
-            logger.error(f"Exception during embedding generation for query: {e}")
+        vec = self._embed_query(query)
+        if vec is None:
             return []
 
         try:
-            retrieved_docs = self.client.search(
-                query=query_embedding,
+            hits = self.client.search(
+                query=vec,
                 n=k,
-                metric="Cosine",  # TODO: Add kwargs for other distance metric options
                 collection_name=self.collection_name,
             )
-            documents = []
-            for doc in retrieved_docs:
-                # Assuming 'distance' is returned; adjust if different
-                documents.append(
-                    Document(
-                        page_content=doc.get("content", ""),
-                        metadata=json.loads(
-                            doc.get("metadata", "{}")
-                        ),  # Deserialize metadata back to dict
-                        score=doc.get("distance", 0.0),
-                    )
-                )
-
-            return documents
-        except (VectorDBClientConnectionError, VectorDBClientRequestError) as e:
-            logger.error(f"Exception during similarity search: {e}")
+        except (VectorDBClientConnectionError, VectorDBClientRequestError) as exc:
+            logger.error("Search failed: %s", exc)
             return []
+        
+        docs: List[Document] = []
+        for hit in hits:
+            docs.append(
+                Document(
+                    page_content=hit.get("content", ""),
+                    metadata=json.loads(hit.get("metadata", "{}")),
+                    score=hit.get("distance", 0.0),
+                )
+            )
+        
+        return docs
 
     def similarity_search_with_score(
         self, query: str, k: int = 4, **kwargs: Any
@@ -155,38 +200,32 @@ class VectorDBVectorStore(VectorStore):
         texts: List[str],
         embedding: Any,
         metadatas: Optional[List[dict]] = None,
+        *,
         client: VectorDBClient = None,
         collection_name: str = "",
+        metric: str = "cosine",
         **kwargs: Any,
     ) -> "VectorDBVectorStore":
         """
         Create a VectorDBVectorStore from a list of texts.
 
-        :param texts: List of texts to add.
-        :param embedding: Embedding model instance.
-        :param metadatas: Optional list of metadata dictionaries.
-        :param client: Instance of VectorDBClient.
-        :param collection_name: Name of the collection to use.
-        :param kwargs: Additional arguments.
-        :return: An instance of VectorDBVectorStore.
+        Example
+            store = VectorDBVectorStore.from_texts(
+                texts,
+                embedding=openai_embedder,
+                client=my_client,
+                collection_name="my_coll",
+                metric="dot",
+            )
         """
-        if client is None:
-            raise ValueError(
-                "VectorDBClient instance must be provided via kwargs['client']"
-            )
-        if not collection_name:
-            raise ValueError(
-                "Collection name must be provided via kwargs['collection_name']"
-            )
-        if embedding is None:
-            raise ValueError("Embedding model must be provided.")
-
         store = cls(
-            client=client, collection_name=collection_name, embedding_model=embedding
+            client=client,
+            collection_name=collection_name,
+            embedding_model=embedding,
+            metric=metric,
         )
-        doc_ids = store.add_texts(texts=texts, metadatas=metadatas, **kwargs)
+        ids = store.add_texts(texts, metadatas, **kwargs)
+        if len(ids) < len(texts):
+            logger.warning("%d texts failed to insert", len(texts) - len(ids))
         
-        if len(doc_ids) < len(texts):
-            logger.warning(f"{len(texts) - len(doc_ids)} documents failed to add")
-
         return store
