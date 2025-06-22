@@ -194,24 +194,30 @@ def main():
         # Document upload for Ingest mode
         if mode == "Ingest & Chat":
             st.subheader("Document Upload")
-            uploaded_file = st.file_uploader(
-                "Upload PDF Document",
+            uploaded_files = st.file_uploader(
+                "Upload PDF Documents",
                 type=["pdf"],
-                help="Upload a PDF document to ingest into the collection"
+                accept_multiple_files=True,
+                help="Upload one or more PDF documents to ingest into the collection"
             )
-            
-            if uploaded_file and st.session_state.collection_name:
-                if st.button("Process Document"):
-                    with st.spinner("Processing document..."):
-                        client = initialize_client()
-                        if process_document(uploaded_file, st.session_state.collection_name, client):
-                            st.success("Document processed successfully!")
-                            # Initialize QA chain after successful ingestion
-                            st.session_state.qa_chain = initialize_qa_chain(
-                                st.session_state.collection_name,
-                                client
-                            )
-    
+
+            if uploaded_files and st.session_state.collection_name:
+                if st.button("Process Documents"):
+                    client = initialize_client()
+                    success_count = 0
+                    with st.spinner("Processing documents..."):
+                        for file in uploaded_files:
+                            result = process_document(file, st.session_state.collection_name, client)
+                            if result:
+                                success_count += 1
+                    if success_count:
+                        st.success(f"{success_count} document(s) processed successfully!")
+                        st.session_state.qa_chain = initialize_qa_chain(
+                            st.session_state.collection_name, client
+                        )
+                    else:
+                        st.error("No documents were processed successfully.")
+
     # Main chat interface
     if st.session_state.collection_name:
         # Initialize QA chain if not already done
